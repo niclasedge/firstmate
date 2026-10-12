@@ -108,7 +108,7 @@ fm_merge_authority_persist() {  # <state> <task-id> <meta> <provider> <host> <pa
   fm_pr_task_id_valid "$id" || return 1
   case "$authority" in away|attended) ;; *) return 1 ;; esac
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   fm_pr_metadata_identity_parse "$meta" || return 1
   [ "$FM_PR_META_PROVIDER" = "$provider" ] \
     && [ "$FM_PR_META_HOST" = "$host" ] \
@@ -149,7 +149,7 @@ fm_merge_authority_read() {  # <state> <task-id> <provider> <host> <path> <numbe
   FM_MERGE_AUTHORITY_RECORD_IDENTITY=
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   record="$state/$id.merge-authority"
   lock="$record.lock"
   fm_lock_acquire_wait "$lock" || return 1
@@ -170,7 +170,7 @@ fm_merge_authority_remove_if_matches() {  # <state> <task-id> <provider> <host> 
   local authority=$7 expected_file_identity=$8 record state_device lock current_file_identity status=0
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   record="$state/$id.merge-authority"
   lock="$record.lock"
   fm_lock_acquire_wait "$lock" || return 1

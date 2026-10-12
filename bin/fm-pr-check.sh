@@ -200,7 +200,7 @@ META_LOCK_HELD=1
 [ -f "$META" ] && [ ! -L "$META" ] && [ "$(fm_pr_file_link_count "$META")" = 1 ] \
   || { echo "error: task metadata is unavailable" >&2; exit 1; }
 META_DEVICE=$(fm_pr_file_device "$META") || exit 1
-STATE_DEVICE=$(fm_pr_file_device "$STATE") || exit 1
+STATE_DEVICE=$(fm_pr_dir_file_device "$STATE") || exit 1
 [ "$META_DEVICE" = "$STATE_DEVICE" ] || { echo "error: task metadata is unavailable" >&2; exit 1; }
 META_TMP=$(mktemp "$STATE/.fm-pr-meta.XXXXXX") || exit 1
 while IFS= read -r line || [ -n "$line" ]; do

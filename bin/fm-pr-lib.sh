@@ -365,11 +365,34 @@ fm_pr_sha256() {
   fi
 }
 
-# Callers pass the containing directory's device read in the same invocation,
-# never a persisted one, so this compares two live readings and survives a
-# remount that renumbers the volume. It refuses a file that is not on that
-# directory's own filesystem, such as one bind-mounted over the name, which is
-# also what keeps same-directory rename publication atomic.
+# The device a regular file created in <dir> reports, read from a fresh probe
+# file there. A directory and its files can report different st_dev: overlayfs
+# with xino=off gives directories the overlay's device and regular files the
+# upper layer's. A new mktemp name cannot be a mount point, so the probe is on
+# the directory's own backing filesystem. Falls back to the directory's own
+# device when no probe can be created, the reading used before probing.
+fm_pr_dir_file_device() {  # <dir>
+  local dir=$1 probe device
+  if probe=$(mktemp "$dir/.fm-pr-device-probe.XXXXXX" 2>/dev/null); then
+    if [ -f "$probe" ] && [ ! -L "$probe" ] && [ "$(fm_pr_file_link_count "$probe")" = 1 ]; then
+      device=$(fm_pr_file_device "$probe") || device=
+    else
+      device=
+    fi
+    rm -f -- "$probe"
+    [ -n "$device" ] || return 1
+    printf '%s\n' "$device"
+    return 0
+  fi
+  fm_pr_file_device "$dir"
+}
+
+# Callers pass the containing directory's file device
+# (fm_pr_dir_file_device) read in the same invocation, never a persisted one,
+# so this compares two live readings and survives a remount that renumbers the
+# volume. It refuses a file that is not on that directory's own filesystem,
+# such as one bind-mounted over the name, which is also what keeps
+# same-directory rename publication atomic.
 fm_pr_private_file_valid() {
   local path=$1 mode=$2 device=$3
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
@@ -578,7 +601,7 @@ fm_pr_poll_prepare() {
   FM_PR_POLL_EXPECT_PATH=$path
   FM_PR_POLL_EXPECT_NUMBER=$number
   FM_PR_POLL_TEMPLATE=$template
-  FM_PR_POLL_STATE_DEVICE=$(fm_pr_file_device "$state") || return 1
+  FM_PR_POLL_STATE_DEVICE=$(fm_pr_dir_file_device "$state") || return 1
   [ -n "$FM_PR_POLL_STATE_DEVICE" ] || return 1
   FM_PR_POLL_DATA_TMP=$(mktemp "$state/.fm-pr-poll-data.XXXXXX") || return 1
   FM_PR_POLL_CHECK_TMP=$(mktemp "$state/.fm-pr-poll-check.XXXXXX") || {
@@ -707,7 +730,7 @@ fm_pr_poll_artifacts_content_valid() {
   local state=$1 id=$2 template=$3 state_device check data registration meta data_hash template_hash
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   check="$state/$id.check.sh"
   data="$state/$id.pr-poll"
   registration="$state/$id.pr-poll-registration"
@@ -743,7 +766,7 @@ fm_pr_poll_artifacts_content_valid() {
 # only difference: every artifact passes fm_pr_poll_artifacts_content_valid, so
 # the check is byte-identical to the template, both hashes match, and the three
 # poll artifacts are private, single-link, and on the state directory's live
-# device; both recorded identities name one device; each recorded inode equals
+# file device (fm_pr_dir_file_device); both recorded identities name one device; each recorded inode equals
 # its live inode; and that recorded device differs from the live one. A
 # replaced, altered, re-moded, relinked, or foreign-device artifact fails a proof
 # here and stays refused. A pending retirement receipt owns its artifacts, so
@@ -759,7 +782,7 @@ fm_pr_poll_registration_device_shifted() {  # <state> <id> <template>
   receipt="$state/$id.pr-poll-retirement"
   [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || return 1
   fm_pr_poll_artifacts_content_valid "$state" "$id" "$template" || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   data_identity=$(fm_pr_file_identity "$state/$id.pr-poll") || return 1
   check_identity=$(fm_pr_file_identity "$state/$id.check.sh") || return 1
   recorded_device=${FM_PR_REG_DATA_IDENTITY%%:*}
@@ -794,7 +817,7 @@ fm_pr_poll_registration_rerecord_device() {  # <state> <id> <template>
   template_hash=$FM_PR_REG_TEMPLATE_HASH
   data_identity=$FM_PR_POLL_REARM_DATA_IDENTITY
   check_identity=$FM_PR_POLL_REARM_CHECK_IDENTITY
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   reg_hash=$(fm_pr_sha256 "$registration") || return 1
   reg_identity=$(fm_pr_file_identity "$registration") || return 1
   tmp=$(mktemp "$state/.fm-pr-poll-registration.XXXXXX") || return 1
@@ -929,7 +952,7 @@ fm_pr_poll_retirement_receipt_valid() {
   local state=$1 id=$2 receipt state_device meta
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   receipt="$state/$id.pr-poll-retirement"
   fm_pr_private_file_valid "$receipt" 600 "$state_device" || return 1
   fm_pr_poll_retirement_parse "$receipt" || return 1
@@ -1250,7 +1273,7 @@ fm_pr_gerrit_read_revision() {  # <host> <number>
 
 fm_pr_poll_retirement_data_valid() {
   local state=$1 id=$2 state_device data data_hash data_identity
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   data="$state/$id.pr-poll"
   fm_pr_private_file_valid "$data" 600 "$state_device" || return 1
   fm_pr_poll_data_parse "$data" || return 1
@@ -1267,7 +1290,7 @@ fm_pr_poll_retirement_data_valid() {
 
 fm_pr_poll_retirement_registration_valid() {
   local state=$1 id=$2 state_device registration reg_hash reg_identity
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   registration="$state/$id.pr-poll-registration"
   fm_pr_private_file_valid "$registration" 600 "$state_device" || return 1
   fm_pr_poll_registration_parse "$registration" || return 1
@@ -1289,7 +1312,7 @@ fm_pr_poll_retirement_registration_valid() {
 
 fm_pr_poll_retirement_check_valid() {
   local state=$1 id=$2 state_device check check_hash check_identity
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   check="$state/$id.check.sh"
   fm_pr_private_file_valid "$check" 600 "$state_device" || return 1
   check_hash=$(fm_pr_sha256 "$check") || return 1
@@ -1337,7 +1360,7 @@ fm_pr_poll_retirement_discard_obsolete() {
   local receipt_hash receipt_identity current_reg_hash current_reg_identity
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   receipt="$state/$id.pr-poll-retirement"
   fm_pr_private_file_valid "$receipt" 600 "$state_device" || return 1
   fm_pr_poll_retirement_parse "$receipt" || return 1
@@ -1362,7 +1385,7 @@ fm_pr_poll_retirement_publish() {
   local state=$1 id=$2 template=$3 result=$4 receipt state_device tmp
   [ "$result" = merged ] || return 1
   fm_pr_poll_snapshot_matches "$state" "$id" "$template" || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   receipt="$state/$id.pr-poll-retirement"
   fm_pr_regular_destination_on_device_or_absent "$receipt" "$state_device" || return 1
   [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || return 1
@@ -1409,7 +1432,7 @@ fm_pr_poll_retirement_recover_one() {
     fm_pr_poll_retirement_discard_obsolete "$state" "$id" "$template" && return 0
     return 1
   fi
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   check="$state/$id.check.sh"
   data="$state/$id.pr-poll"
   registration="$state/$id.pr-poll-registration"
@@ -1485,7 +1508,7 @@ fm_pr_poll_merge_already_notified() {  # <state> <id> <provider> <host> <path> <
   local state=$1 id=$2 provider=$3 host=$4 path=$5 number=$6 marker state_device
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   marker="$state/$id.pr-poll-merge-notified"
   fm_pr_poll_merge_marker_matches "$marker" "$state_device" \
     "$provider" "$host" "$path" "$number"
@@ -1495,7 +1518,7 @@ fm_pr_poll_merge_mark_notified() {  # <state> <id> <provider> <host> <path> <num
   local state=$1 id=$2 provider=$3 host=$4 path=$5 number=$6 marker tmp state_device
   fm_pr_task_id_valid "$id" || return 1
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
-  state_device=$(fm_pr_file_device "$state") || return 1
+  state_device=$(fm_pr_dir_file_device "$state") || return 1
   marker="$state/$id.pr-poll-merge-notified"
   fm_pr_regular_destination_on_device_or_absent "$marker" "$state_device" || return 1
   umask 077

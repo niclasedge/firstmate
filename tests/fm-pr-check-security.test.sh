@@ -3293,7 +3293,7 @@ SH
 shift_registration_device() {  # <state> <id> [both|data|check]
   local state=$1 id=$2 which=${3:-both} registration device shifted tmp
   registration="$state/$id.pr-poll-registration"
-  device=$(fm_pr_file_device "$state") || fail "could not read the state device"
+  device=$(fm_pr_dir_file_device "$state") || fail "could not read the state device"
   shifted=$((device + 1))
   tmp=$(mktemp "$state/.test-shifted-registration.XXXXXX") || fail "could not stage a shifted registration"
   awk -v live="$device" -v shifted="$shifted" -v which="$which" '
@@ -3401,7 +3401,7 @@ test_device_rerecord_refuses_tampered_artifacts() {
     else
       shift_registration_device "$state" task-a
     fi
-    shifted_device=$(( $(fm_pr_file_device "$state") + 1 ))
+    shifted_device=$(( $(fm_pr_dir_file_device "$state") + 1 ))
     case "$mutation" in
       swapped-check)
         cp "$POLL" "$state/.swap"
@@ -3602,6 +3602,79 @@ SH
   pass "device re-record publication waits without rewriting its registration"
 }
 
+# overlayfs with xino=off reports the overlay's st_dev for a directory and the
+# upper layer's for every regular file in it. This fakes that split with a stat
+# that offsets only directory readings, then proves the whole guarded PR path -
+# arming, merge, and the watcher's retirement - authenticates its own files and
+# still refuses a file on a genuinely foreign device.
+install_split_directory_device_stat() {  # <dir>
+  cat > "$1/fakebin/stat" <<'SH'
+#!/usr/bin/env bash
+last=${!#}
+case " $* " in
+  *" %d "*)
+    if [ -n "${FM_TEST_FOREIGN_PATH:-}" ] && [ "$last" = "$FM_TEST_FOREIGN_PATH" ]; then
+      printf '%s\n' 777777
+      exit 0
+    fi
+    if [ -d "$last" ]; then
+      real=$("${FM_TEST_REAL_STAT:?}" "$@") || exit $?
+      printf '%s\n' "$((real + 1000))"
+      exit 0
+    fi
+    ;;
+esac
+exec "${FM_TEST_REAL_STAT:?}" "$@"
+SH
+  chmod +x "$1/fakebin/stat"
+}
+
+test_split_directory_device_arms_merges_and_retires() {
+  local dir state expected rc
+  # Darwin's device helper reads /usr/bin/stat directly, so no PATH fake can
+  # split the readings there.
+  if [ "$(uname)" = Darwin ]; then
+    pass "split directory device not exercisable on Darwin"
+    return 0
+  fi
+  dir=$(make_case split-directory-device)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  install_split_directory_device_stat "$dir"
+  export FM_TEST_REAL_STAT="$REAL_STAT"
+  [ "$(PATH="$dir/fakebin:$BASE_PATH" stat -c %d "$state")" != "$("$REAL_STAT" -c %d "$state/task-a.meta")" ] \
+    || fail "split device fixture did not split the directory and file readings"
+
+  expected=0123456789abcdef0123456789abcdef01234567
+  FM_TEST_GH_HEAD=$expected run_check_entry "$dir" task-a https://github.com/o/r/pull/37 \
+    > "$dir/stdout" 2> "$dir/stderr" || fail "split directory device refused arming: $(cat "$dir/stderr")"
+  grep -qxF 'pr=https://github.com/o/r/pull/37' "$state/task-a.meta" \
+    || fail "split directory device arming did not record the PR"
+  PATH="$dir/fakebin:$BASE_PATH" fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "split directory device poll did not authenticate"
+  ! ls "$state"/.fm-pr-device-probe.* >/dev/null 2>&1 || fail "device probe was left behind"
+
+  FM_TEST_FOREIGN_PATH="$state/task-a.check.sh" PATH="$dir/fakebin:$BASE_PATH" \
+    fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    && fail "a foreign-device check authenticated beside a split directory device"
+
+  : > "$dir/gh.log"
+  run_merge_entry "$dir" task-a https://github.com/o/r/pull/37 -- --merge \
+    > "$dir/merge.out" 2> "$dir/merge.err" || fail "split directory device refused the merge: $(cat "$dir/merge.err")"
+  grep -qxF "pr merge 37 --repo o/r --match-head-commit $expected --merge" "$dir/gh.log" \
+    || fail "split directory device merge did not reach the forge"
+  ack_watcher_cycle "$state" || fail "merge outcome acknowledgement failed"
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "split directory device watcher failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" task-a
+  unset FM_TEST_REAL_STAT
+  pass "split directory and file devices arm, merge, and retire while a foreign device is refused"
+}
+
 test_parser_matrix
 test_gitlab_merge_watch
 test_forgejo_merge_watch
@@ -3644,6 +3717,7 @@ test_device_renumbered_poll_stays_armed
 test_device_rerecord_refuses_tampered_artifacts
 test_device_rerecord_serializes_direct_rearm
 test_device_rerecord_serializes_rerecord
+test_split_directory_device_arms_merges_and_retires
 test_postrename_poll_validation_revokes_and_retries
 test_bootstrap_leaves_unauthenticated_checks
 test_custom_snapshot_cleanup_on_signal
