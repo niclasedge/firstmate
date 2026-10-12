@@ -549,6 +549,37 @@ SH
   chmod +x "$fakebin/$tool"
 }
 
+# fm_fake_split_directory_device_stat <fakebin>
+# Drops a stat stub that fakes overlayfs with xino=off, where a directory
+# reports the overlay's st_dev and every regular file in it the upper layer's:
+# a `%d` reading of a directory is offset by 1000, and a `%d` reading of the
+# path FM_TEST_FOREIGN_PATH names reports a foreign device. Every other
+# invocation runs the real stat. Linux only: Darwin's device helpers read
+# /usr/bin/stat directly, so no PATH fake can split the readings there.
+fm_fake_split_directory_device_stat() {
+  local fakebin=$1 real
+  real=$(command -v stat) || return 1
+  cat > "$fakebin/stat" <<SH
+#!/usr/bin/env bash
+last=\${!#}
+case " \$* " in
+  *" %d "*)
+    if [ -n "\${FM_TEST_FOREIGN_PATH:-}" ] && [ "\$last" = "\$FM_TEST_FOREIGN_PATH" ]; then
+      printf '%s\n' 777777
+      exit 0
+    fi
+    if [ -d "\$last" ]; then
+      real=\$($(printf '%q' "$real") "\$@") || exit \$?
+      printf '%s\n' "\$((real + 1000))"
+      exit 0
+    fi
+    ;;
+esac
+exec $(printf '%q' "$real") "\$@"
+SH
+  chmod +x "$fakebin/stat"
+}
+
 # fm_fake_claude_outside_read_gate <fakebin>
 # Drops a claude stub that models the 2.1.257 outside-read gate instead of
 # answering like a generic exit-0 tool: it resolves its own cwd and every

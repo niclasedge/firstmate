@@ -263,7 +263,7 @@ SHIM_WRITE_TMP=
 shim_write() {
   local want=$1 device tmp
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
-  device=$(fm_pr_file_device "$STATE") || return 1
+  device=$(fm_pr_dir_file_device "$STATE") || return 1
   [ -n "$device" ] || return 1
   fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$device" || return 1
   if [ -e "$CHECK_SHIM" ] && [ "$(fm_pr_file_mode "$CHECK_SHIM")" = 700 ] \
@@ -295,7 +295,7 @@ shim_write() {
 # too, but a home that was armed stays armed with what it had.
 shim_backup() {
   local device tmp
-  device=$(fm_pr_file_device "$STATE") || return 1
+  device=$(fm_pr_dir_file_device "$STATE") || return 1
   [ -n "$device" ] || return 1
   tmp=$(umask 077; mktemp "$STATE/.fm-mail-check.XXXXXX" 2>/dev/null) || return 1
   if ! cat "$CHECK_SHIM" > "$tmp" 2>/dev/null \

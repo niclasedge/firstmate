@@ -3607,28 +3607,6 @@ SH
 # that offsets only directory readings, then proves the whole guarded PR path -
 # arming, merge, and the watcher's retirement - authenticates its own files and
 # still refuses a file on a genuinely foreign device.
-install_split_directory_device_stat() {  # <dir>
-  cat > "$1/fakebin/stat" <<'SH'
-#!/usr/bin/env bash
-last=${!#}
-case " $* " in
-  *" %d "*)
-    if [ -n "${FM_TEST_FOREIGN_PATH:-}" ] && [ "$last" = "$FM_TEST_FOREIGN_PATH" ]; then
-      printf '%s\n' 777777
-      exit 0
-    fi
-    if [ -d "$last" ]; then
-      real=$("${FM_TEST_REAL_STAT:?}" "$@") || exit $?
-      printf '%s\n' "$((real + 1000))"
-      exit 0
-    fi
-    ;;
-esac
-exec "${FM_TEST_REAL_STAT:?}" "$@"
-SH
-  chmod +x "$1/fakebin/stat"
-}
-
 test_split_directory_device_arms_merges_and_retires() {
   local dir state expected rc
   # Darwin's device helper reads /usr/bin/stat directly, so no PATH fake can
@@ -3640,8 +3618,7 @@ test_split_directory_device_arms_merges_and_retires() {
   dir=$(make_case split-directory-device)
   state="$dir/home/state"
   write_task_meta "$dir"
-  install_split_directory_device_stat "$dir"
-  export FM_TEST_REAL_STAT="$REAL_STAT"
+  fm_fake_split_directory_device_stat "$dir/fakebin"
   [ "$(PATH="$dir/fakebin:$BASE_PATH" stat -c %d "$state")" != "$("$REAL_STAT" -c %d "$state/task-a.meta")" ] \
     || fail "split device fixture did not split the directory and file readings"
 
@@ -3671,7 +3648,6 @@ test_split_directory_device_arms_merges_and_retires() {
   set -e
   [ "$rc" -eq 0 ] || fail "split directory device watcher failed: $(cat "$dir/watch.err")"
   assert_poll_absent "$state" task-a
-  unset FM_TEST_REAL_STAT
   pass "split directory and file devices arm, merge, and retire while a foreign device is refused"
 }
 

@@ -193,6 +193,61 @@ test_unsafe_hardlink_or_symlink_is_refused() {
   pass "hard-linked or symlinked artifacts are refused and left in place"
 }
 
+# overlayfs with xino=off gives a directory the overlay's st_dev and every
+# regular file in it the upper layer's. Registration, the watcher's trust read,
+# and retirement must read the device a file in the state directory reports,
+# and still refuse an artifact on a genuinely foreign device.
+test_split_directory_device_registers_and_unregisters() {
+  local home out err status
+  if [ "$(uname)" = Darwin ]; then
+    pass "split directory device not exercisable on Darwin"
+    return 0
+  fi
+  home=$(make_home split-device)
+  out="$home/out.txt"
+  err="$home/err.txt"
+  fm_fakebin "$home" >/dev/null
+  fm_fake_split_directory_device_stat "$home/fakebin"
+  printf '#!/usr/bin/env bash\nprintf split\n' > "$home/state/split.check.sh"
+  chmod 0700 "$home/state/split.check.sh"
+  [ "$(PATH="$home/fakebin:$PATH" stat -c %d "$home/state")" != "$(stat -c %d "$home/state/split.check.sh")" ] \
+    || fail "split device fixture did not split the directory and file readings"
+
+  status=0
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" "$REGISTER" split >"$out" 2>"$err" || status=$?
+  expect_code 0 "$status" "register beside a split directory device"
+  PATH="$home/fakebin:$PATH" bash -c '. "$1/bin/fm-pr-lib.sh"; . "$1/bin/fm-check-lib.sh"; fm_custom_check_registered "$2" split' \
+    _ "$ROOT" "$home/state" || fail "split directory device check did not authenticate"
+  ! ls "$home/state"/.fm-pr-device-probe.* >/dev/null 2>&1 || fail "a device probe was left behind"
+
+  status=0
+  PATH="$home/fakebin:$PATH" FM_TEST_FOREIGN_PATH="$home/state/split.check.sh" FM_HOME="$home" \
+    "$REGISTER" split >"$out" 2>"$err" || status=$?
+  expect_code 1 "$status" "register a foreign-device check"
+  assert_contains "$(cat "$err")" "custom check is unavailable" "foreign-device register refusal used the wrong stderr"
+  PATH="$home/fakebin:$PATH" FM_TEST_FOREIGN_PATH="$home/state/split.check.sh" \
+    bash -c '. "$1/bin/fm-pr-lib.sh"; . "$1/bin/fm-check-lib.sh"; fm_custom_check_registered "$2" split' \
+    _ "$ROOT" "$home/state" && fail "a foreign-device check authenticated beside a split directory device"
+
+  status=0
+  PATH="$home/fakebin:$PATH" FM_TEST_FOREIGN_PATH="$home/state/split.check-trust" FM_HOME="$home" \
+    "$UNREGISTER" split >"$out" 2>"$err" || status=$?
+  expect_code 1 "$status" "unregister a foreign-device trust binding"
+  assert_contains "$(cat "$err")" "unsafe to remove" "foreign-device unregister refusal used the wrong stderr"
+  assert_present "$home/state/split.check.sh" "foreign-device refusal deleted check.sh"
+  assert_present "$home/state/split.check-trust" "foreign-device refusal deleted check-trust"
+
+  status=0
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" "$UNREGISTER" split >"$out" 2>"$err" || status=$?
+  expect_code 0 "$status" "unregister beside a split directory device"
+  assert_absent "$home/state/split.check.sh" "split device unregister left check.sh behind"
+  assert_absent "$home/state/split.check-trust" "split device unregister left check-trust behind"
+  ! ls "$home/state"/.fm-pr-device-probe.* >/dev/null 2>&1 || fail "a device probe was left behind"
+
+  pass "split directory and file devices register and unregister while a foreign device is refused"
+}
+
 test_empty_id_and_empty_state_refuse_without_stray_rm
 test_happy_path_removes_only_check_and_trust
 test_unsafe_hardlink_or_symlink_is_refused
+test_split_directory_device_registers_and_unregisters

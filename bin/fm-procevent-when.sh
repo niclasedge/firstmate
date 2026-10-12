@@ -205,7 +205,7 @@ cmd_arm() {
   action_path=$(action_executable "${act[0]}") || die "action executable is unavailable: ${act[0]}"
   action_hash=$(fm_pr_sha256 "$action_path") || die "cannot hash the action executable"
   act[0]=$action_path
-  device=$(fm_pr_file_device "$WHEN_DIR") || die "cannot inspect the watch directory"
+  device=$(fm_pr_dir_file_device "$WHEN_DIR") || die "cannot inspect the watch directory"
   tmp=$(umask 077; mktemp "$WHEN_DIR/.spec.XXXXXX") || die "cannot stage the spec"
   {
     printf 'fm-when-spec-v1\n'
@@ -261,7 +261,7 @@ spec_load() {
   spec=$(spec_file "$sid")
   trust=$(trust_file "$sid")
   [ -d "$WHEN_DIR" ] && [ ! -L "$WHEN_DIR" ] || { SPEC_ERROR="watch directory is unavailable"; return 1; }
-  device=$(fm_pr_file_device "$WHEN_DIR") || { SPEC_ERROR="cannot inspect the watch directory"; return 1; }
+  device=$(fm_pr_dir_file_device "$WHEN_DIR") || { SPEC_ERROR="cannot inspect the watch directory"; return 1; }
   fm_pr_private_file_valid "$spec" 600 "$device" || { SPEC_ERROR="spec is missing or not private"; return 1; }
   fm_pr_private_file_valid "$trust" 600 "$device" || { SPEC_ERROR="trust record is missing or not private"; return 1; }
   {
@@ -572,7 +572,7 @@ rebind_one() {
     fm_procevent_source_lock_release "$sid"
     return 2
   fi
-  if ! device=$(fm_pr_file_device "$WHEN_DIR"); then
+  if ! device=$(fm_pr_dir_file_device "$WHEN_DIR"); then
     printf 'skip: %s (cannot inspect the watch directory)\n' "$sid" >&2
     fm_procevent_source_lock_release "$sid"
     return 1

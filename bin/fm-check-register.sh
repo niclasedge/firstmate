@@ -24,7 +24,7 @@ CHECK="$STATE/$ID.check.sh"
 TRUST="$STATE/$ID.check-trust"
 [ -d "$STATE" ] && [ ! -L "$STATE" ] || { echo "error: state directory is unavailable" >&2; exit 1; }
 [ -f "$CHECK" ] && [ ! -L "$CHECK" ] || { echo "error: custom check is unavailable" >&2; exit 1; }
-STATE_DEVICE=$(fm_pr_file_device "$STATE") || exit 1
+STATE_DEVICE=$(fm_pr_dir_file_device "$STATE") || exit 1
 fm_pr_private_file_valid "$CHECK" 700 "$STATE_DEVICE" \
   || { echo "error: custom check is unavailable" >&2; exit 1; }
 fm_pr_regular_destination_on_device_or_absent "$TRUST" "$STATE_DEVICE" \

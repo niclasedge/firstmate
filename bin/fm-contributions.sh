@@ -199,7 +199,7 @@ write_record() { # task record-json-file
   [ ! -L "$dir" ] || fail 'contribution directory is a symlink'
   mkdir -p "$dir"
   file="$dir/contributions.json"
-  device=$(fm_pr_file_device "$dir")
+  device=$(fm_pr_dir_file_device "$dir")
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'unsafe contribution record destination'
   staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX")
   # Preserve other contributions owned by this same task.
@@ -441,7 +441,7 @@ arm() {
       return 0
     fi
   fi
-  device=$(fm_pr_file_device "$STATE")
+  device=$(fm_pr_dir_file_device "$STATE")
   fm_pr_regular_destination_on_device_or_absent "$STATE/contributions.check.sh" "$device" || fail 'unsafe check destination'
   staged=$(umask 077; mktemp "$STATE/.contributions-check.XXXXXX")
   shim=('#!/usr/bin/env bash'

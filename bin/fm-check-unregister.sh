@@ -5,7 +5,8 @@
 # explicitly empty override, an invalid id, or a resolved state path that is
 # not an existing non-symlink directory is refused before removal.
 # Each existing named artifact must be an ordinary single-link file on the
-# state directory's device; only <id>.check.sh and <id>.check-trust are removed.
+# device a file created in the state directory reports; only <id>.check.sh
+# and <id>.check-trust are removed.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +31,7 @@ fi
 
 CHECK="$STATE/$ID.check.sh"
 TRUST="$STATE/$ID.check-trust"
-STATE_DEVICE=$(fm_pr_file_device "$STATE") || {
+STATE_DEVICE=$(fm_pr_dir_file_device "$STATE") || {
   echo "error: state directory is unavailable" >&2
   exit 1
 }

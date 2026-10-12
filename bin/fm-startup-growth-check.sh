@@ -201,7 +201,7 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
 write_record_atomically() {
   local tmp=$1 dest=$2 state_device
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
-  state_device=$(fm_pr_file_device "$STATE") || return 1
+  state_device=$(fm_pr_dir_file_device "$STATE") || return 1
   fm_pr_regular_destination_on_device_or_absent "$dest" "$state_device" || return 1
   mv -f -- "$tmp" "$dest"
 }
@@ -371,7 +371,7 @@ arm() {
     /*) home=$FM_HOME ;;
     *) home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || fail "cannot resolve FM_HOME $FM_HOME" ;;
   esac
-  state_device=$(fm_pr_file_device "$STATE") || fail "state directory is unavailable"
+  state_device=$(fm_pr_dir_file_device "$STATE") || fail "state directory is unavailable"
   want=$(printf '%s\n' \
     '#!/usr/bin/env bash' \
     "export FM_HOME=$(printf '%q' "$home")" \
